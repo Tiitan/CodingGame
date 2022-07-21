@@ -1,0 +1,10 @@
+* text=auto
+
+*.py    text diff=python
+*.cs    text diff=cs
+*.cpp   text diff=cpp
+*.h     text diff=cpp
+
+*.sln                merge=union
+*.vcxproj            merge=union
+*.vcxproj.filters    merge=union
