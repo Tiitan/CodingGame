@@ -10,3 +10,4 @@ x64/
 *.vcxproj.user
 *.DotSettings.user
 *.csproj.user
+__pycache__/
