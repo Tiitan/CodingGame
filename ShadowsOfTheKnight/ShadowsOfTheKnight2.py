@@ -1,7 +1,7 @@
 import sys
-from typing import Optional, List
+from typing import Optional, Callable, List
 
-from numpy import ndarray, array, dot, vstack, hstack, cross, ones, roll, clip
+from numpy import ndarray, array, dot, vstack, hstack, cross, ones, roll, pi, cos, sin
 from numpy.linalg import norm
 from pandas import Series, DataFrame
 
@@ -61,21 +61,73 @@ class ShadowsOfTheKnight2:
         if bomb_dir == "SAME":
             return False
 
+    def evaluate_position(self, position: ndarray) -> bool:
+        if not (0 <= position[0] <= self.width and 0 <= position[1] <= self.height):
+            return False
+
+        last_position = self.initial_position
+        for jump_pos, jump_bomb_dir in self.jump_history:
+            prev_distance = norm(last_position - position)
+            distance = norm(last_position - position)
+            if jump_bomb_dir == "COLDER" and prev_distance > distance:
+                return False
+            if jump_bomb_dir == "WARMER" and prev_distance < distance:
+                return False
+            last_position = jump_pos
+        return True
+
+    def jump_on_target(self, center: ndarray) -> ndarray:
+        if not self.final_targets:
+            target = center.astype(int)
+            self.final_targets = [
+                target,
+                array([target[0] - 1, target[1]]),
+                array([target[0] + 1, target[1]]),
+                array([target[0], target[1] - 1]),
+                array([target[0], target[1] + 1]),
+                array([target[0] + 1, target[1] + 1]),
+                array([target[0] + 1, target[1] - 1]),
+                array([target[0] - 1, target[1] + 1]),
+                array([target[0] - 1, target[1] - 1])
+            ]
+            self.final_targets = [t for t in self.final_targets if self.evaluate_position(t)]
+        else:
+            self.final_targets.remove(self.final_targets[0])
+        return self.final_targets[0]
+
     # Get new position (polygon opposite side))
     def calculate_new_position(self) -> ndarray:
-        polygon_center = self.search_polygon.mean()
-        direction = polygon_center - self.batman_position
-        perpendicular = array([-direction[1], direction[0]])
-        intersection_vector = direction + perpendicular + polygon_center
-        segments_intersect = Geometry.intersect_polygon(self.search_polygon, hlo=polygon_center, hld=intersection_vector).values[0]
+        center = self.search_polygon.mean()  # TODO: this is centroid, weight each point by both side edges length for exact center
+        has_converged = len(self.final_targets) > 0 or not self.search_polygon.apply(lambda x: norm(center-x) > 0.8).any()
 
-        segments_intersect[0] = min(max(0, segments_intersect[0]), self.width)
-        segments_intersect[1] = min(max(0, segments_intersect[1]), self.height)
+        if self.step_left <= 3 or has_converged:
+            return self.jump_on_target(center)
 
-        self.debug.draw_line(polygon_center, intersection_vector, "purple")
-        self.debug.draw_line(polygon_center, segments_intersect, "orange")
+        # create a circle around the search area
+        distance = norm(center - self.batman_position)
+        if not self.step_left % 5:
+            distance = 2
+        circle_points = 8
+        circle_slice = 2 * pi / circle_points
+        points = []
+        for i in range(circle_points):
+            angle = circle_slice * i
+            point = array([center[0] + distance * cos(angle), center[1] + distance * sin(angle)])
+            if 0 <= point[0] <= self.width and 0 <= point[1] <= self.height:
+                points.append(point)
 
-        return segments_intersect
+        # jump on circle (halven search area)
+        if len(points) < 2:
+            return center.astype(int)
+        points = sorted(points, key=lambda x: norm(x - self.batman_position))
+
+        if len(points) == circle_points:
+            target = points[int(len(points) - 2)].astype(int)
+        else:
+            target = points[int(len(points) - 1)].astype(int)
+
+        self.debug.draw_line(center, target, "purple")
+        return target
 
     def cut_search_polygon(self, bomb_dir: str):
         center_position = (self.prev_position + self.batman_position) / 2
@@ -85,8 +137,9 @@ class ShadowsOfTheKnight2:
 
         if bomb_dir == "SAME":
             line = Geometry.intersect_polygon(self.search_polygon, center_position, split_dir, True).tolist()
-            dir_half_norm = batman_direction / norm(batman_direction) / 2
-            self.search_polygon = Series([line[0] + dir_half_norm, line[1] + dir_half_norm, line[1] - dir_half_norm, line[0] - dir_half_norm])
+            if len(line) == 2:
+                dir_half_norm = batman_direction / norm(batman_direction) / 2
+                self.search_polygon = Series([line[0] + dir_half_norm, line[1] + dir_half_norm, line[1] - dir_half_norm, line[0] - dir_half_norm])
             return
 
         points = self.search_polygon.to_list()
@@ -105,26 +158,41 @@ class ShadowsOfTheKnight2:
     def step(self):
         self.prev_position = self.batman_position
         self.batman_position = self.calculate_new_position()
-        print(f"{int(self.batman_position[0])} {int(self.batman_position[1])}")
-        self.cut_search_polygon(input())
+
+        print(f"{self.batman_position[0]} {self.batman_position[1]}")
+
+        bomb_dir = self.get_input()
+        print(bomb_dir, file=sys.stderr)
+
+        self.jump_history.append((self.batman_position, bomb_dir))
+        if not len(self.final_targets):
+            self.cut_search_polygon(bomb_dir)
+        self.step_left -= 1
+        self.debug.draw_line(self.prev_position, self.batman_position, "red")
+        self.debug.draw_line(self.search_polygon.mean(), self.batman_position, "black")
+
 
     def run(self):
         while True:
             self.step()
 
-    def __init__(self):
-        self.width, self.height = [int(i) - 1 for i in input().split()]
-        _ = int(input())  # maximum number of turns before game over.
-        x0, y0 = [int(i) for i in input().split()]
+    def __init__(self, input_callback: Callable[[], str]):
+        self.get_input = input_callback
+        self.width, self.height = [int(i) - 1 for i in self.get_input().split()]
+        self.step_left = int(self.get_input())  # maximum number of turns before game over.
+        x0, y0 = [int(i) for i in self.get_input().split()]
 
         self.debug = IDebugCanvas()
         self.prev_position = None
-        self.batman_position = array([x0, y0])
+        self.initial_position = array([x0, y0])
+        self.batman_position = self.initial_position
         self.search_polygon = Series([array([0, 0]), array([self.width, 0]), array([self.width, self.height]), array([0, self.height])])
         self.split_segment = None
-        input()  # ignore first unknown
+        self.get_input()  # ignore first unknown
+        self.jump_history: List[(ndarray, str)] = []
+        self.final_targets = []
 
 
 if __name__ == "__main__":
-    exercise = ShadowsOfTheKnight2()
+    exercise = ShadowsOfTheKnight2(input)
     exercise.run()
