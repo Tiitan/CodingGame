@@ -12,8 +12,8 @@ class GameCanvas(IDebugCanvas):
     def __init__(self, parent, exercise: ShadowsOfTheKnight2, width, height):
         self._width = width
         self._height = height
-        self._scale = 400 / exercise.height
-        self._offset = array([width / 4, height / 4])
+        self._scale = 1000 / exercise.height
+        self._offset = array([0, 0])
         self._canvas = Canvas(parent, width=width, height=height, background="grey")
         self._canvas.pack(side=LEFT)
         self._exercise = exercise
@@ -46,7 +46,6 @@ class GameCanvas(IDebugCanvas):
             self._canvas.scale("all", event.x, event.y, 1.1, 1.1)
         elif event.delta < 0:
             self._canvas.scale("all", event.x, event.y, 0.9, 0.9)
-        #self._canvas.configure(scrollregion=self._canvas.bbox("all"))
 
     def _point_to_canvas(self, position: ndarray) -> ndarray:
         return position * self._scale + self._offset
@@ -76,6 +75,11 @@ class GameCanvas(IDebugCanvas):
         p1 = self._point_to_canvas(p1)
         self._canvas.create_line(p0[0], p0[1], p1[0], p1[1], fill=color, tags="debug")
 
+    def draw_point(self, p: ndarray, color: str):
+        p = self._point_to_canvas(p)
+        hs = self._scale / 2
+        self._canvas.create_oval(p[0] - hs, p[1] - hs, p[0] + hs, p[1] + hs, fill=color, tags="debug")
+
     def clear_debug(self):
         self._canvas.delete("debug")
 
@@ -87,7 +91,7 @@ def step(game_canvas: GameCanvas, exercise:  ShadowsOfTheKnight2):
 
 
 exercise: ShadowsOfTheKnight2
-target = array([4, 10])
+target = array([23, 22])
 
 
 def get_input() -> str:
@@ -106,8 +110,8 @@ def get_input() -> str:
 def main():
     window = Tk()
     window.title('Visual debugger')
-    window_width = 800
-    window_height = 650
+    window_width = 1100
+    window_height = 1000
     position_right = int(window.winfo_screenwidth()/2 - window_width/2)
     position_down = int(window.winfo_screenheight()/2 - window_height/2)
 

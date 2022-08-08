@@ -10,6 +10,8 @@ class IDebugCanvas:
     def draw_line(self, p0: ndarray, p1: ndarray, color: str):
         pass
 
+    def draw_point(self, p: ndarray, color: str):
+        pass
 
 class Geometry:
     @staticmethod
@@ -49,6 +51,12 @@ class Geometry:
         return DataFrame({'a': polygon, 'b': roll(polygon, 1)}).apply(
             lambda s: Geometry.intersect_segment(hlo, hld, s['a'], s['b'], full_line), axis=1, result_type='reduce').dropna()
 
+    @staticmethod
+    def polygon_center(polygon: Series) -> ndarray:
+        df = DataFrame({'point': polygon, 'next': roll(polygon, 1), 'prev': roll(polygon, -1)})
+        weights = df.apply(lambda d: norm(d['point'] - d['next']) + norm(d['point'] - d['prev']), axis=1)
+        return (df['point'] * weights).sum() / weights.sum()
+
 
 class ShadowsOfTheKnight2:
     @staticmethod
@@ -67,45 +75,55 @@ class ShadowsOfTheKnight2:
 
         last_position = self.initial_position
         for jump_pos, jump_bomb_dir in self.jump_history:
+            if jump_pos[0] == position[0] and jump_pos[1] == position[1]:
+                return False
             prev_distance = norm(last_position - position)
-            distance = norm(last_position - position)
+            distance = norm(jump_pos - position)
             if jump_bomb_dir == "COLDER" and prev_distance > distance:
                 return False
             if jump_bomb_dir == "WARMER" and prev_distance < distance:
                 return False
+            if jump_bomb_dir == "SAME" and abs(prev_distance - distance) > 0.1:
+                return False
             last_position = jump_pos
         return True
 
-    def jump_on_target(self, center: ndarray) -> ndarray:
+    def build_final_target(self, center: ndarray):
+        self.final_targets = []
+        target = center.astype(int)
+        array_root = array([target[0] - 2, target[1] - 2])
+        for i in range(5):
+            for j in range(5):
+                t = array([array_root[0] + i, array_root[1] + j])
+                if self.evaluate_position(t):
+                    self.final_targets.append(t)
+        print(f"Built final target. count={len(self.final_targets)}, center={center}", file=sys.stderr)
+
+    def update_final_target(self):
+        self.final_targets = [t for t in self.final_targets if self.evaluate_position(t)]
+        print(f"updated final target. count={len(self.final_targets)}", file=sys.stderr)
+
+    def update_target(self, center: ndarray):
         if not self.final_targets:
-            target = center.astype(int)
-            self.final_targets = [
-                target,
-                array([target[0] - 1, target[1]]),
-                array([target[0] + 1, target[1]]),
-                array([target[0], target[1] - 1]),
-                array([target[0], target[1] + 1]),
-                array([target[0] + 1, target[1] + 1]),
-                array([target[0] + 1, target[1] - 1]),
-                array([target[0] - 1, target[1] + 1]),
-                array([target[0] - 1, target[1] - 1])
-            ]
-            self.final_targets = [t for t in self.final_targets if self.evaluate_position(t)]
+            self.build_final_target(center)
         else:
-            self.final_targets.remove(self.final_targets[0])
-        return self.final_targets[0]
+            self.update_final_target()
+
+        for target in self.final_targets:
+            self.debug.draw_point(target, "cyan")
 
     # Get new position (polygon opposite side))
     def calculate_new_position(self) -> ndarray:
-        center = self.search_polygon.mean()  # TODO: this is centroid, weight each point by both side edges length for exact center
-        has_converged = len(self.final_targets) > 0 or not self.search_polygon.apply(lambda x: norm(center-x) > 0.8).any()
-
+        center = Geometry.polygon_center(self.search_polygon)
+        has_converged = len(self.final_targets) > 0 or not self.search_polygon.apply(lambda x: norm(center-x) > 2).any()
         if self.step_left <= 3 or has_converged:
-            return self.jump_on_target(center)
+            self.update_target(center)
+        if has_converged and len(self.final_targets) <= 3:
+            return self.final_targets[0]
 
         # create a circle around the search area
         distance = norm(center - self.batman_position)
-        if not self.step_left % 5:
+        if not self.step_left % 6:
             distance = 2
         circle_points = 8
         circle_slice = 2 * pi / circle_points
@@ -147,7 +165,7 @@ class ShadowsOfTheKnight2:
         prev_side = self.point_side(batman_direction, points[len(points) - 1] - center_position, bomb_dir)
         for i in range(len(points)):
             side = self.point_side(batman_direction, points[i] - center_position, bomb_dir)
-            if prev_side is not None and prev_side != side:
+            if prev_side != side:
                 prev_index = i - 1 if i > 0 else len(points) - 1
                 new_polygon.append(Geometry.intersect_segment(center_position, split_dir, points[prev_index], points[i], True))
             if side:
@@ -168,9 +186,9 @@ class ShadowsOfTheKnight2:
         if not len(self.final_targets):
             self.cut_search_polygon(bomb_dir)
         self.step_left -= 1
+        self.turn += 1
         self.debug.draw_line(self.prev_position, self.batman_position, "red")
         self.debug.draw_line(self.search_polygon.mean(), self.batman_position, "black")
-
 
     def run(self):
         while True:
@@ -179,7 +197,10 @@ class ShadowsOfTheKnight2:
     def __init__(self, input_callback: Callable[[], str]):
         self.get_input = input_callback
         self.width, self.height = [int(i) - 1 for i in self.get_input().split()]
+        print(f"width:{self.width}, height:{self.height}", file=sys.stderr)
+
         self.step_left = int(self.get_input())  # maximum number of turns before game over.
+        self.turn = 0
         x0, y0 = [int(i) for i in self.get_input().split()]
 
         self.debug = IDebugCanvas()
