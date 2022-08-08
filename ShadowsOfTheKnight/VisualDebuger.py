@@ -12,7 +12,7 @@ class GameCanvas(IDebugCanvas):
     def __init__(self, parent, exercise: ShadowsOfTheKnight2, width, height):
         self._width = width
         self._height = height
-        self._scale = 1000 / exercise.height
+        self._scale = 600 / exercise.height
         self._offset = array([0, 0])
         self._canvas = Canvas(parent, width=width, height=height, background="grey")
         self._canvas.pack(side=LEFT)
@@ -110,8 +110,8 @@ def get_input() -> str:
 def main():
     window = Tk()
     window.title('Visual debugger')
-    window_width = 1100
-    window_height = 1000
+    window_width = 1000
+    window_height = 800
     position_right = int(window.winfo_screenwidth()/2 - window_width/2)
     position_down = int(window.winfo_screenheight()/2 - window_height/2)
 
