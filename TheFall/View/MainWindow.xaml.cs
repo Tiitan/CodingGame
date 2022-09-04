@@ -1,30 +1,22 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+﻿using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Data;
-using System.Windows.Documents;
-using System.Windows.Input;
-using System.Windows.Media;
-using System.Windows.Media.Imaging;
-using System.Windows.Navigation;
-using System.Windows.Shapes;
-using System.Numerics;
 using System.IO;
-
+using TheFall.ViewModel;
 
 namespace TheFall
 {
     public partial class MainWindow : Window
     {
+        Game? _game;
+
         bool inputTextDirty = false; // input text changed = save input on next Run
+        readonly MainViewModel MainVm = new MainViewModel();
 
         public MainWindow()
         {
             InitializeComponent();
+            DataContext = MainVm;
 
             // Try load saved map when window open (app start)
             if (File.Exists("InputText.txt"))
@@ -42,7 +34,9 @@ namespace TheFall
                 Task.Run(() => File.WriteAllText("InputText.txt", textMap));
 
             var inputStream = new StringReader(textMap);
-            Game game = new Game(inputStream);
+            _game = new Game(inputStream);
+
+            MainVm.WorldVm = new WorldViewModel(_game.World);
         }
 
         private void OnInputTextChanged(object sender, TextChangedEventArgs e)

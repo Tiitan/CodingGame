@@ -39,6 +39,16 @@ namespace TheFall
         }
 
         public static Vector2i NullVector = new Vector2i(int.MinValue, int.MinValue);
+
+        public override bool Equals(object? obj)
+        {
+            return obj is Vector2i i && this == i;
+        }
+
+        public override int GetHashCode()
+        {
+            return X.GetHashCode() ^ Y.GetHashCode();
+        }
     }
 
     public struct CellType
@@ -78,6 +88,9 @@ namespace TheFall
         public Actor Indy;
         public Actor[] Rocks;
         public int Exit;
+
+        public int Width => Map.GetLength(0);
+        public int Height => Map.GetLength(1);
 
         public World(int[,] map, Actor indy, Actor[] rocks, int exit)
         {
