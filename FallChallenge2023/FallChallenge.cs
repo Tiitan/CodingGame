@@ -24,7 +24,7 @@ class Drone
     public List<RadarBlip> RadarBlips {get; set;}
 
     DroneState state = DroneState.GoingDown;
-    int targetLevel = 2;
+    public int TargetLevel {get; set;} = 3;
 
     public Drone(TextReader textReader)
     {
@@ -50,17 +50,17 @@ class Drone
         switch (state)
         {
             case DroneState.GoingDown:
-                if (Position.Y >= game.LevelDepth[targetLevel])
+                if (Position.Y >= game.LevelDepth[TargetLevel])
                 {
                     state = DroneState.Searching;
-                    Console.Error.WriteLine($"Drone{Id}: start searching at level {targetLevel}");
+                    Console.Error.WriteLine($"Drone{Id}: start searching at level {TargetLevel}");
                 }
                 goto case DroneState.Searching;
             case DroneState.Searching:
-                var targetType = targetLevel - 1;
+                var targetType = TargetLevel - 1;
                 var fishCount = RadarBlips.Count(x => x.Type.Type == targetType);
                 var scanCount = game.My.AllScans.Count(s => game.creatureTypes[s].Type == targetType);
-                Console.Error.WriteLine($"Drone{Id}: targetLevel={targetLevel} fishCount={fishCount} scanCount={scanCount}");
+                Console.Error.WriteLine($"Drone{Id}: targetLevel={TargetLevel} fishCount={fishCount} scanCount={scanCount}");
                 if (scanCount >= fishCount)
                 {
                     state = DroneState.Returning;
@@ -70,11 +70,11 @@ class Drone
             case DroneState.Returning:
                 if (Position.Y <= game.LevelDepth[0])
                 {
-                    targetLevel++;
+                    TargetLevel++;
                     state = DroneState.GoingDown;
-                    if (targetLevel == 4)
-                        targetLevel = 1;
-                    Console.Error.WriteLine($"Drone{Id}: going down, new targetLevel: {targetLevel}");
+                    if (TargetLevel == 4)
+                        TargetLevel = 1;
+                    Console.Error.WriteLine($"Drone{Id}: going down, new targetLevel: {TargetLevel}");
                 }
                 break;
             case DroneState.Wait:
@@ -86,52 +86,62 @@ class Drone
     {
         var message = "";
         StateTransition(game);
-        int x = 0, y = 0, light = 0;
+        Vector2 targetLocation = new Vector2();
+        int light = 0;
         switch (state)
         {
             case DroneState.GoingDown:
-                x = (int)Position.X;
-                y = game.LevelDepth[targetLevel];
+                targetLocation = new Vector2(Position.X, game.LevelDepth[TargetLevel]);
                 light = Battery == game.MaxBattery ? 1 : 0;
-                message = "GoingDown";
+                message = $"🤿{TargetLevel}​";
                 break;
             case DroneState.Searching:
-                var target = RadarBlips.Where(x => x.Type.Type == targetLevel - 1)
+                var target = RadarBlips.Where(x => x.Type.Type == TargetLevel - 1)
                                 .First(x => !game.My.AllScans.Contains(x.CreatureId));
-                x = target.Radar.Contains("L") ? 0 : 10000;
-                y = game.LevelDepth[targetLevel];
+                targetLocation = new Vector2(target.Radar.Contains("L") ? 0 : 10000, game.LevelDepth[TargetLevel]);
                 light = (game.turn % 3) == 0 ? 1 : 0;
-                message = "Searching";
+                message = $"👀{TargetLevel}​";
                 break;
             case DroneState.Returning:
-                x = (int)Position.X;
-                y = game.LevelDepth[0];
+                targetLocation = new Vector2(Position.X, game.LevelDepth[0]);
                 light = Battery == game.MaxBattery ? 1 : 0;
-                message = "Returning";
+                message = "🏖️​";
                 break;
             case DroneState.Wait:
                 Console.WriteLine($"WAIT 0");
                 return;
         }
 
-        var monsters = game.VisibleCreatures.Where(x => x.Type.Type == -1 && Vector2.Distance(x.Position, Position) <= 2500);
+        var targetDirection = Vector2.Normalize(targetLocation - Position);
+        var monsters = game.VisibleCreatures.Where(x => x.Type.Type == -1 && Vector2.Distance(x.Position, Position) <= 3000);
         if (monsters.Count() > 0)
         {
-            light = 0;
-            message += " ..sh";
-            var monstersApproaching = monsters.Where(m => Vector2.Dot(Vector2.Normalize(m.Direction) , Vector2.Normalize(Position - m.Position)) > 0.7).ToList();
+            message += " 😱​";
+            var monstersApproaching = monsters.Where(m => CheckCollision(targetDirection, m)).ToList();
             if (monstersApproaching.Count() > 0)
             {
-                var evasiveDirection = Vector2.Normalize(Position - monstersApproaching[0].Position) * 2000;
-                x = (int)(Position.X + evasiveDirection.X);
-                x = Math.Clamp(x, 0, 10000);
-                y = (int)(Position.Y + evasiveDirection.Y);
-                y = Math.Clamp(y, 0, 10000);
-                message += " ..Run";
+                var evasiveDirection = Vector2.Normalize(Position - monstersApproaching[0].Position);
+                var dodgeDirection = Vector2.Normalize(evasiveDirection + targetDirection);
+
+                targetLocation = Position + dodgeDirection * 5000;
+                message += " 🚨​";
             }
         }
 
+        if (light == 1)
+             message += " 🔦​​";
+
+        int x = Math.Clamp((int)targetLocation.X, 0, 10000);
+        int y = Math.Clamp((int)targetLocation.Y, 0, 10000);
         Console.WriteLine($"MOVE {x} {y} {light} {message}");
+    }
+
+    public bool CheckCollision(Vector2 targetDirection, Creature c)
+    {
+        for (float i = 0; i < 1; i += 0.1f)
+            if (Vector2.Distance(c.Position + i * c.Direction, Position + i * targetDirection) < 650)
+                return true;
+        return false;
     }
 }
 
@@ -295,6 +305,11 @@ class Game
             radarBlips.Add(new RadarBlip(textReader));
         foreach (var drone in My.Drones)
             drone.RadarBlips = radarBlips.Where(d => d.DroneId == drone.Id).ToList();
+
+        // First turn: change lower target level if to many monsters
+        if (turn == 1 && radarBlips.Count(d => creatureTypes[d.CreatureId].Type == -1 && d.DroneId == My.Drones[0].Id) > 3)
+            foreach (var drone in My.Drones)
+                drone.TargetLevel = 2;
     }
 
     public void ComputeAction()
